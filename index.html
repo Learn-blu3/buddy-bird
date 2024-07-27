@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buddy Bird</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #808080;
+        }
+
+        #gameContainer {
+            overflow: hidden;
+            position: relative;
+            width: 320px;
+            height: 480px;
+            background-color: #fff;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+        }
+
+        canvas {
+            background-color: #70c5ce;
+            display: block;
+            margin: auto;
+        }
+
+        #message {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px;
+            background-color: #fff;
+            border: 2px solid #000;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        #score {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 24px;
+            font-weight: bold;
+            color: #000;
+        }
+
+        #powerUpScore {
+            position: absolute;
+            top: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 20px;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="message">PROGRAM TO WARR GYA!!!</div>
+        <div id="score">Score: 0</div>
+        <div id="powerUpScore">Power-ups: 0</div>
+    </div>
+
+    <audio id="flapSound" src="flap.mp3"></audio>
+    <audio id="hitSound" src="hit.wav"></audio>
+    <audio id="gameOverSound" src="chutti.mp3"></audio>
+    <audio id="powerUpSound" src="coin.wav"></audio>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const messageDiv = document.getElementById('message');
+        const scoreDiv = document.getElementById('score');
+        const powerUpScoreDiv = document.getElementById('powerUpScore');
+        const flapSound = document.getElementById('flapSound');
+        const hitSound = document.getElementById('hitSound');
+        const gameOverSound = document.getElementById('gameOverSound');
+        const powerUpSound = document.getElementById('powerUpSound');
+        const gameContainer = document.getElementById('gameContainer');
+
+        canvas.width = 320;
+        canvas.height = 480;
+
+        const bird = {
+            x: 50,
+            y: 150,
+            radius: 15,
+            gravity: 0.4,
+            lift: -8,
+            velocity: 0
+        };
+
+        let pipes = [];
+        const pipeWidth = 50; 
+        const pipeGap = 150; 
+        let frameCount = 0;
+        let gameOver = false;
+        let score = 0;
+        let powerUpScore = 0;
+
+        const cloudImage = new Image();
+        cloudImage.src = 'CC.png';
+
+        const mountainImage = new Image();
+        mountainImage.src = 'M.png';
+
+        const birdImage = new Image();
+        birdImage.src = 'A.png'; 
+
+        const powerUpImage = new Image();
+        powerUpImage.src = 'powerup.png';
+
+        let clouds = [];
+        let mountains = [];
+        let powerUps = [];
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                flapSound.play();
+                if (gameOver) {
+                    resetGame();
+                } else {
+                    bird.velocity = bird.lift;
+                }
+            } else if (e.code === 'Enter' && gameOver) {
+                resetGame();
+            }
+        });
+
+        document.addEventListener('mousedown', () => {
+            flapSound.play();
+            if (gameOver) {
+                resetGame();
+            } else {
+                bird.velocity = bird.lift;
+            }
+        });
+
+        function drawBird() {
+            ctx.drawImage(birdImage, bird.x - 20, bird.y - 20, 40, 40);
+        }
+
+        function drawPipes() {
+            ctx.fillStyle = '#0F0';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 5;
+            pipes.forEach(pipe => {
+                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
+                ctx.fillRect(pipe.x, pipe.top + pipeGap, pipeWidth, canvas.height - pipe.top - pipeGap);
+            });
+            ctx.shadowBlur = 0;
+        }
+
+        function updateBird() {
+            bird.velocity += bird.gravity;
+            bird.y += bird.velocity;
+            if (bird.y - bird.radius > canvas.height) {
+                endGame();
+            }
+        }
+
+        function updatePipes() {
+            if (frameCount % 90 === 0) {
+                const top = Math.random() * (canvas.height - pipeGap);
+                pipes.push({ x: canvas.width, top: top, passed: false });
+                const powerUpY = top + pipeGap / 2 + (Math.random() * pipeGap / 2 - 15);
+                powerUps.push({ x: canvas.width, y: powerUpY });
+            }
+
+            pipes.forEach(pipe => {
+                pipe.x -= 2;
+
+                if (!pipe.passed && pipe.x < bird.x) {
+                    pipe.passed = true;
+                    score++;
+                    scoreDiv.textContent = `Score: ${score}`;
+                }
+            });
+
+            pipes = pipes.filter(pipe => pipe.x + pipeWidth > 0);
+        }
+
+        function detectCollision() {
+            for (const pipe of pipes) {
+                if (
+                    bird.x + bird.radius > pipe.x &&
+                    bird.x - bird.radius < pipe.x + pipeWidth &&
+                    (bird.y - bird.radius < pipe.top || bird.y + bird.radius > pipe.top + pipeGap)
+                ) {
+                    hitSound.play();
+                    endGame();
+                }
+            }
+        }
+
+        function drawBackground() {
+            if (!gameOver) {
+                updateClouds();
+                updateMountains();
+            }
+            drawClouds();
+            drawMountains();
+        }
+
+        function updateClouds() {
+            if (frameCount % 120 === 0) {
+                const cloudY = Math.random() * (canvas.height / 2);
+                clouds.push({ x: canvas.width, y: cloudY });
+            }
+
+            clouds.forEach(cloud => {
+                cloud.x -= 1;
+            });
+
+            clouds = clouds.filter(cloud => cloud.x + 96 > 0);
+        }
+
+        function drawClouds() {
+            clouds.forEach(cloud => {
+                ctx.drawImage(cloudImage, cloud.x, cloud.y, 96, 48);
+            });
+        }
+
+        function updateMountains() {
+            if (frameCount % 240 === 0) {
+                mountains.push({ x: canvas.width, y: canvas.height - 96 });
+            }
+
+            mountains.forEach(mountain => {
+                mountain.x -= 0.5;
+            });
+
+            mountains = mountains.filter(mountain => mountain.x + 192 > 0);
+        }
+
+        function drawMountains() {
+            mountains.forEach(mountain => {
+                ctx.drawImage(mountainImage, mountain.x, canvas.height - 128, 192, 128);
+            });
+        }
+
+        function updatePowerUps() {
+            powerUps.forEach(powerUp => {
+                powerUp.x -= 2;
+            });
+
+            powerUps = powerUps.filter(powerUp => powerUp.x + 15 > 0);
+        }
+
+        function drawPowerUps() {
+            powerUps.forEach(powerUp => {
+                ctx.drawImage(powerUpImage, powerUp.x, powerUp.y, 15, 15);
+            });
+        }
+
+        function detectPowerUpCollision() {
+            powerUps.forEach((powerUp, index) => {
+                if (
+                    bird.x + bird.radius > powerUp.x &&
+                    bird.x - bird.radius < powerUp.x + 15 &&
+                    bird.y + bird.radius > powerUp.y &&
+                    bird.y - bird.radius < powerUp.y + 15
+                ) {
+                    powerUpSound.play();
+                    powerUpScore++;
+                    powerUpScoreDiv.textContent = `Power-ups: ${powerUpScore}`;
+                    powerUps.splice(index, 1);
+                }
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBackground();
+            drawBird();
+            drawPipes();
+            drawPowerUps();
+        }
+
+        function update() {
+            if (!gameOver) {
+                updateBird();
+                updatePipes();
+                updatePowerUps();
+                detectCollision();
+                detectPowerUpCollision();
+            }
+        }
+
+        function gameLoop() {
+            draw();
+            update();
+            frameCount++;
+            requestAnimationFrame(gameLoop);
+        }
+
+        function endGame() {
+            gameOverSound.play();
+            gameOver = true;
+            messageDiv.style.display = 'block';
+        }
+
+        function resetGame() {
+            bird.y = 150;
+            bird.velocity = 0;
+            pipes = [];
+            powerUps = [];
+            frameCount = 0;
+            gameOver = false;
+            score = 0;
+            powerUpScore = 0;
+            scoreDiv.textContent = `Score: ${score}`;
+            powerUpScoreDiv.textContent = `Power-ups: ${powerUpScore}`;
+            messageDiv.style.display = 'none';
+            gameOverSound.pause();
+            gameOverSound.currentTime = 0;
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
